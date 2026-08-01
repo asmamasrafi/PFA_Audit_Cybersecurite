@@ -1,4 +1,13 @@
+import io
 import streamlit as st
+
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.units import cm
+from reportlab.lib import colors
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.platypus import (
+    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+)
 
 # Configuration de base de la page web
 st.set_page_config(
@@ -173,6 +182,158 @@ questions_data = {
 themes_list = list(questions_data.keys())
 noms_etapes = ["Accueil"] + [f"Thème {i+1}" for i in range(len(themes_list))] + ["Résultats"]
 
+# ------------------------------------------------------------------
+# NIVEAUX DE MATURITE ET RECOMMANDATIONS
+# Chaque niveau est défini par un seuil de score (sur 54) et associé
+# à 2-3 recommandations prioritaires à donner à la PME.
+# ------------------------------------------------------------------
+NIVEAUX = [
+    {
+        "seuil_max": 14,
+        "nom": "Niveau 1 (Initial)",
+        "emoji": "🚨",
+        "description": "Bonnes pratiques largement absentes, forte exposition aux risques. Une action urgente est recommandée.",
+        "recommandations": [
+            "Mettre en place immédiatement des sauvegardes régulières des données, stockées sur un support différent (disque externe ou cloud).",
+            "Installer un antivirus à jour sur tous les postes et créer un compte informatique individuel pour chaque employé.",
+            "Rédiger une liste minimale de règles de sécurité (mots de passe, usage d'internet) et la communiquer à tous."
+        ]
+    },
+    {
+        "seuil_max": 27,
+        "nom": "Niveau 2 (Basique)",
+        "emoji": "⚠️",
+        "description": "Quelques bonnes pratiques isolées, mais pas de démarche structurée.",
+        "recommandations": [
+            "Désigner officiellement une personne responsable de la sécurité informatique, même à temps partiel.",
+            "Formaliser par écrit les règles de sécurité existantes et organiser une sensibilisation annuelle au phishing.",
+            "Vérifier régulièrement que les sauvegardes fonctionnent réellement (test de restauration)."
+        ]
+    },
+    {
+        "seuil_max": 41,
+        "nom": "Niveau 3 (Intermédiaire)",
+        "emoji": "💡",
+        "description": "Pratiques structurées sur la majorité des thèmes. Continuez ainsi !",
+        "recommandations": [
+            "Formaliser une procédure écrite de gestion des incidents, connue de tous les employés.",
+            "Élaborer et tester un plan de continuité d'activité en cas de panne prolongée.",
+            "Vérifier annuellement la conformité à la loi 09-08 sur la protection des données personnelles."
+        ]
+    },
+    {
+        "seuil_max": 54,
+        "nom": "Niveau 4 (Avancé)",
+        "emoji": "🏆",
+        "description": "Bonnes pratiques largement intégrées dans le fonctionnement quotidien. Excellent !",
+        "recommandations": [
+            "Maintenir une veille sur les nouvelles menaces et mettre à jour régulièrement les procédures existantes.",
+            "Réaliser des audits de sécurité périodiques, idéalement avec un regard externe.",
+            "Continuer à sensibiliser les nouveaux employés dès leur arrivée (onboarding sécurité)."
+        ]
+    },
+]
+
+
+def obtenir_niveau(score_total: int) -> dict:
+    """Retourne le dictionnaire du niveau de maturité correspondant au score."""
+    for niveau in NIVEAUX:
+        if score_total <= niveau["seuil_max"]:
+            return niveau
+    return NIVEAUX[-1]
+
+
+def generer_pdf_rapport(score_total: int, niveau: dict, nom_entreprise: str = "") -> bytes:
+    """
+    Génère un rapport PDF (en mémoire) contenant le score de maturité
+    cybersécurité et 2-3 recommandations selon le niveau atteint.
+    Retourne le contenu du PDF sous forme de bytes.
+    """
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        topMargin=2 * cm,
+        bottomMargin=2 * cm,
+        leftMargin=2 * cm,
+        rightMargin=2 * cm,
+    )
+
+    styles = getSampleStyleSheet()
+    style_titre = ParagraphStyle(
+        "TitrePrincipal", parent=styles["Title"], fontSize=20,
+        textColor=colors.HexColor("#1F2937"), spaceAfter=6
+    )
+    style_sous_titre = ParagraphStyle(
+        "SousTitre", parent=styles["Normal"], fontSize=11,
+        textColor=colors.HexColor("#6B7280"), spaceAfter=20
+    )
+    style_h2 = ParagraphStyle(
+        "H2", parent=styles["Heading2"], fontSize=14,
+        textColor=colors.HexColor("#1F2937"), spaceBefore=16, spaceAfter=8
+    )
+    style_corps = ParagraphStyle(
+        "Corps", parent=styles["Normal"], fontSize=11, leading=16
+    )
+    style_reco = ParagraphStyle(
+        "Reco", parent=styles["Normal"], fontSize=11, leading=16,
+        leftIndent=10, spaceAfter=8
+    )
+
+    elements = []
+
+    # En-tête
+    elements.append(Paragraph("🛡️ Rapport d'audit CyberAudit PME", style_titre))
+    sous_titre = "Évaluation de la maturité cybersécurité (référentiel CMRPI/AUSIM)"
+    if nom_entreprise:
+        sous_titre = f"{nom_entreprise} — {sous_titre}"
+    elements.append(Paragraph(sous_titre, style_sous_titre))
+
+    # Score
+    elements.append(Paragraph("Score de maturité", style_h2))
+    couleur_niveau = {
+        "Niveau 1 (Initial)": colors.HexColor("#DC2626"),
+        "Niveau 2 (Basique)": colors.HexColor("#D97706"),
+        "Niveau 3 (Intermédiaire)": colors.HexColor("#2563EB"),
+        "Niveau 4 (Avancé)": colors.HexColor("#16A34A"),
+    }.get(niveau["nom"], colors.black)
+
+    table_score = Table(
+        [[f"{score_total} / 54", f"{niveau['emoji']} {niveau['nom']}"]],
+        colWidths=[6 * cm, 9 * cm]
+    )
+    table_score.setStyle(TableStyle([
+        ("FONTSIZE", (0, 0), (0, 0), 22),
+        ("FONTSIZE", (1, 0), (1, 0), 14),
+        ("TEXTCOLOR", (0, 0), (0, 0), couleur_niveau),
+        ("TEXTCOLOR", (1, 0), (1, 0), couleur_niveau),
+        ("FONTNAME", (0, 0), (-1, -1), "Helvetica-Bold"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+    ]))
+    elements.append(table_score)
+    elements.append(Spacer(1, 6))
+    elements.append(Paragraph(niveau["description"], style_corps))
+
+    # Recommandations
+    elements.append(Paragraph("Recommandations prioritaires", style_h2))
+    for i, reco in enumerate(niveau["recommandations"], start=1):
+        elements.append(Paragraph(f"<b>{i}.</b> {reco}", style_reco))
+
+    elements.append(Spacer(1, 20))
+    elements.append(Paragraph(
+        "<i>Ce rapport est généré automatiquement à partir de vos réponses et fournit "
+        "des pistes générales. Il ne remplace pas un audit de sécurité approfondi réalisé "
+        "par un professionnel.</i>",
+        ParagraphStyle("Note", parent=styles["Normal"], fontSize=9, textColor=colors.grey)
+    ))
+
+    doc.build(elements)
+    pdf_bytes = buffer.getvalue()
+    buffer.close()
+    return pdf_bytes
+
+
 with st.sidebar:
     st.title("🛡️ CyberAudit PME")
     st.markdown("---")
@@ -196,11 +357,11 @@ if st.session_state.etape == 0:
 elif 1 <= st.session_state.etape <= 5:
     theme_actuel = themes_list[st.session_state.etape - 1]
     donnees_theme = questions_data[theme_actuel]
-    
+
     st.header(theme_actuel)
     st.write(f"*{donnees_theme['description']}*")
     st.markdown("---")
-    
+
     # Affichage des questions du thème
     for q in donnees_theme["questions"]:
         valeur_actuelle = st.session_state.reponses.get(q["id"])
@@ -214,8 +375,8 @@ elif 1 <= st.session_state.etape <= 5:
             options=q["choix"],
             index=index_defaut
         )
-        st.write("") # Espace visuel
-    
+        st.write("")  # Espace visuel
+
     # Boutons de navigation
     col1, col2 = st.columns(2)
     with col1:
@@ -228,28 +389,40 @@ elif 1 <= st.session_state.etape <= 5:
 
 elif st.session_state.etape == 6:
     st.title("📊 Résultats de votre Audit")
-    
+
     # CALCUL DU SCORE (Uniquement les questions Q7 à Q24 - Thèmes 2 à 5)
     score_total = 0
     for i in range(7, 25):
         id_question = f"Q{i}"
         reponse_str = st.session_state.reponses.get(id_question, "0")
-        points = int(reponse_str[0]) 
+        points = int(reponse_str[0])
         score_total += points
+
+    # Détermination du niveau (utilisé pour l'affichage ET pour le PDF)
+    niveau = obtenir_niveau(score_total)
 
     # Affichage du score
     st.markdown(f"### Votre score de maturité : **{score_total} / 54**")
-    st.progress(score_total / 54) # Barre de progression visuelle
-    
-    # LOGIQUE D'INTERPRETATION DU SCORE
-    if score_total <= 14:
-        st.error("🚨 **Niveau 1 (Initial)** : Bonnes pratiques largement absentes, forte exposition aux risques. Une action urgente est recommandée.")
-    elif score_total <= 27:
-        st.warning("⚠️ **Niveau 2 (Basique)** : Quelques bonnes pratiques isolées, mais pas de démarche structurée.")
-    elif score_total <= 41:
-        st.info("💡 **Niveau 3 (Intermédiaire)** : Pratiques structurées sur la majorité des thèmes. Continuez ainsi !")
-    else:
-        st.success("🏆 **Niveau 4 (Avancé)** : Bonnes pratiques largement intégrées dans le fonctionnement quotidien. Excellent !")
-        
+    st.progress(score_total / 54)  # Barre de progression visuelle
+
+    # Affichage du niveau (mêmes seuils qu'avant, factorisés dans NIVEAUX)
+    boite = {14: st.error, 27: st.warning, 41: st.info, 54: st.success}[niveau["seuil_max"]]
+    boite(f"{niveau['emoji']} **{niveau['nom']}** : {niveau['description']}")
+
+    st.markdown("#### 📝 Recommandations prioritaires")
+    for i, reco in enumerate(niveau["recommandations"], start=1):
+        st.markdown(f"{i}. {reco}")
+
     st.markdown("---")
+
+    # --- Génération et téléchargement du rapport PDF ---
+    nom_entreprise = st.text_input("Nom de l'entreprise (optionnel, apparaîtra sur le rapport)", value="")
+    pdf_bytes = generer_pdf_rapport(score_total, niveau, nom_entreprise)
+    st.download_button(
+        label="📄 Télécharger le rapport PDF",
+        data=pdf_bytes,
+        file_name="rapport_cyberaudit_pme.pdf",
+        mime="application/pdf"
+    )
+
     st.button("🔄 Recommencer l'audit", on_click=recommencer)
