@@ -8,6 +8,8 @@ Page d'accueil "site institutionnel" (inspirée de messervices.cyber.gouv.fr)
 
 import streamlit as st
 from datetime import datetime
+import base64
+from streamlit_pdf_viewer import pdf_viewer
 
 st.set_page_config(
     page_title="Auto-évaluation Cyber PME | CMRPI",
@@ -78,23 +80,25 @@ CUSTOM_CSS = """
     .section-text { font-size: 15px; color: #3A4750; line-height: 1.65; max-width: 520px; }
     .section-text b { color: var(--ink); }
 
-    /* Bouton principal */
-    div.stButton > button[kind="primary"] {
-    background-color: #8B1E1E;
-    color: white;
-    border: none;
-    border-radius: 6px;
-    padding: 11px 26px;
-    font-weight: 700;
-    font-size: 15px;
-}
+    
+    /* Bouton principal et Bouton de téléchargement */
+    div.stButton > button[kind="primary"],
+    div.stDownloadButton > button[kind="primary"] {
+        background-color: #8B1E1E;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        padding: 11px 26px;
+        font-weight: 700;
+        font-size: 15px;
+    }
 
-div.stButton > button[kind="primary"]:hover {
-    background-color: #641515;
-    color: white;
-}
-
-    div.stButton > button[kind="secondary"] {
+    div.stButton > button[kind="primary"]:hover,
+    div.stDownloadButton > button[kind="primary"]:hover {
+        background-color: #641515;
+        color: white;
+    }
+     div.stButton > button[kind="secondary"] {
         background: white; color: var(--ink); border: 1.5px solid var(--line);
         border-radius: 6px; padding: 9px 20px; font-weight: 500;
     }
@@ -106,14 +110,77 @@ div.stButton > button[kind="primary"]:hover {
     .info-block p { color: var(--gray); font-size: 14px; margin: 4px 0 10px 0; }
 
     .disclaimer {
-        font-style: italic; font-size: 13px; color: var(--gray);
-        max-width: 900px; margin-top: 34px; padding-top: 18px; border-top: 1px solid var(--line);
+        font-style: italic; 
+        font-size: 13px; 
+        color: var(--gray);
+        max-width: 900px; 
+        
+        /* 1. margin: auto permet de centrer le bloc horizontalement */
+        margin: 34px auto 0 auto; 
+        
+        padding-top: 18px; 
+        border-top: 1px solid var(--line);
+        
+        /* 2. text-align: center permet de centrer le texte lui-même */
+        text-align: center; 
+    }
+       /* =========================================================
+       CARTE — ENCOURAGER LES AUTRES PME
+       ========================================================= */
+
+   .lower-band {
+    background: linear-gradient(135deg, #0D1B2E 0%, #163B72 100%);
+    margin: 35px 48px 30px 48px;
+    padding: 30px 38px;
+    min-height: 120px;
+    border-radius: 14px;
+
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+
+    box-shadow: 0 5px 18px rgba(13, 27, 46, 0.15);
     }
 
-    /* Bande basse */
-    .lower-band { background: #F5F7F6; padding: 30px 48px; margin-top: 20px; display: flex; justify-content: space-between; align-items: center; }
-    .lower-band h4 { margin: 0 0 6px 0; font-size: 16px; color: var(--ink); }
-    .lower-band p { margin: 0; font-size: 13.5px; color: var(--gray); max-width: 500px; }
+    .lower-band h4 {
+    margin: 0 0 8px 0;
+    font-size: 18px;
+    font-weight: 700;
+    color: white !important;
+    }
+
+    .lower-band p {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.6;
+    color: #D9E3F0 !important;
+    max-width: 650px;
+    }
+
+    .lower-band-button {
+    display: inline-block;
+
+    background: white;
+    color: #163B72 !important;
+
+    text-decoration: none !important;
+
+    padding: 12px 24px;
+    border-radius: 7px;
+
+    font-size: 14px;
+    font-weight: 700;
+
+    white-space: nowrap;
+
+    transition: all 0.2s ease;
+    }
+
+    .lower-band-button:hover {
+    background: #E2E9F5;
+    color: #0D1B2E !important;
+    transform: translateY(-2px);
+    }
 
     footer.custom-footer { padding: 26px 48px; font-size: 12.5px; color: var(--gray); border-top: 1px solid var(--line); }
 
@@ -166,6 +233,11 @@ div.stButton > button[kind="primary"]:hover {
         object-position: center top !important;
         border-radius: 14px;
         display: block;
+    }
+
+    p, .section-text, .info-block p, .lower-band p, .reco-box {
+        text-align: justify;
+        text-justify: inter-word; /* Améliore l'espacement entre les mots */
     }
     
     </style>
@@ -335,6 +407,11 @@ for k, v in defaults.items():
     if k not in st.session_state:
         st.session_state[k] = v
 
+if "page" in st.query_params:
+    page_demandee = st.query_params["page"]
+    # ⚠️ AJOUT DE "questionnaire" ET "resultat" DANS LA LISTE CI-DESSOUS
+    if page_demandee in ["accueil", "guide", "questionnaire", "resultat"]:
+        st.session_state.page = page_demandee
 
 def aller_a(page):
     st.session_state.page = page
@@ -351,8 +428,20 @@ def demarrer_test():
 # EN-TÊTE COMMUN (barre de nav, toutes pages)
 # =====================================================================
 def barre_navigation():
+    # Déterminer quelle page est active pour souligner le bon lien
+    page_active = st.session_state.page
+    cls_accueil = 'class="active"' if page_active in ["accueil", "questionnaire", "resultat"] else ''
+    cls_guide = 'class="active"' if page_active == "guide" else ''
+    
     st.markdown(
-        """
+        f"""
+        <style>
+            /* Adaptation du CSS pour les liens cliquables (balises <a>) */
+            .top-nav .nav-links a {{ color: var(--ink); text-decoration: none; font-weight: 500; font-size: 14px; transition: color 0.2s ease; }}
+            .top-nav .nav-links a:hover {{ color: var(--teal); }}
+            .top-nav .nav-links a.active {{ color: var(--teal); border-bottom: 2px solid var(--teal); padding-bottom: 4px; }}
+        </style>
+        
         <div class="top-nav">
             <div class="brand-block">
                 <div class="brand-icon">🛡️</div>
@@ -362,14 +451,55 @@ def barre_navigation():
                 </div>
             </div>
             <div class="nav-links">
-                <span class="active">Test de maturité</span>
-                <span>Guide CMRPI/AUSIM</span>
-                <span>À propos</span>
+                <!-- Liens modifiés pour utiliser les paramètres d'URL -->
+                <a href="?page=accueil" target="_self" {cls_accueil}>Test de maturité</a>
+                <a href="?page=guide" target="_self" {cls_guide}>Guide CMRPI/AUSIM</a>
+                <a href="#" target="_self"></a>
             </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
+
+
+
+# PAGE — GUIDE PDF
+# =====================================================================
+def page_guide():
+    barre_navigation()
+    bandeau_hero(fil_ariane_extra="Guide CMRPI/AUSIM")
+    
+    st.markdown('<div class="main-pad">', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">Consulter le Guide de Bonnes Pratiques</div>', unsafe_allow_html=True)
+    
+   
+    chemin_pdf = "guide_cmrpi_ausim.pdf" 
+    
+    try:
+        # 1. Création du bouton de téléchargement
+        with open(chemin_pdf, "rb") as f:
+            pdf_bytes = f.read()
+            
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            st.download_button(
+                label=" Télécharger le guide (PDF)",
+                data=pdf_bytes,
+                file_name="Guide_Maturite_Cyber.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+                type="primary"
+            )
+            
+        st.write("---") # Ligne de séparation visuelle
+        
+        # 2. Affichage du PDF avec le composant dédié (contourne le blocage Base64)
+        pdf_viewer(chemin_pdf, width=1000, height=800)
+        
+    except FileNotFoundError:
+        st.error(f"⚠️ Le fichier '{chemin_pdf}' est introuvable. Assurez-vous qu'il est bien placé dans le même dossier que votre script.")
+        
+    st.markdown('</div>', unsafe_allow_html=True)
 
 
 def bandeau_hero(fil_ariane_extra=None):
@@ -391,11 +521,11 @@ def bandeau_hero(fil_ariane_extra=None):
 def chemin_image_axe(numero_axe):
     # Dictionnaire reliant chaque numéro d'axe au nom de son image
     images_axes = {
-        0: "images/image2.png",
-        1: "images/image5.png",
-        2: "images/image1.png",
-        3: "images/image4.png",
-        4: "images/image3.png",
+        0: "images/image22.png",
+        1: "images/image55.png",
+        2: "images/image11.png",
+        3: "images/image44.png",
+        4: "images/image33.png",
     }
     # Si le numéro d'axe existe, on retourne le chemin, sinon une image par défaut
     return images_axes.get(numero_axe, "images/votre_image.png")
@@ -429,8 +559,11 @@ def page_accueil():
         if st.button("Débuter le test", type="primary"):
             demarrer_test()
 
+        # ... (votre code précédent avec st.button)
+
         st.markdown(
             """
+            <!-- Premier bloc : Guide CMRPI/AUSIM -->
             <div class="info-block">
                 <div class="icon">📖</div>
                 <div>
@@ -439,40 +572,45 @@ def page_accueil():
                     PME marocaines, sans jargon technique.</p>
                 </div>
             </div>
+
+            <!-- Deuxième bloc : Évaluation indicative (Nouveau) -->
+            <div class="info-block" style="border-top: none; padding-top: 0; margin-top: 20px;">
+                <div class="icon">📌</div>
+                <div>
+                    <b>Évaluation indicative</b>
+                    <p>Le résultat obtenu est une évaluation indicative basée sur un modèle simplifié construit à partir
+                    du Guide de bonnes pratiques CMRPI/AUSIM. La maturité cyber n'est pas une évaluation du niveau de
+                    sécurité technique des systèmes d'information d'une entreprise, mais de sa posture générale à
+                    l'égard des enjeux de cybersécurité.</p>
+                </div>
+            </div>
             """,
             unsafe_allow_html=True,
         )
 
     with col_image:
-        # Assure-toi que cette image existe bien dans le dossier images !
-        st.image("images/image6.jpg", use_container_width=True)
+        st.image("images/image666.jpg", use_container_width=True)
+
+    # On ferme la balise de la section principale (le disclaimer en bas a été supprimé)
+    st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown(
         """
-        <div class="disclaimer">
-        Le résultat obtenu est une évaluation indicative basée sur un modèle simplifié construit à partir
-        du Guide de bonnes pratiques CMRPI/AUSIM. La maturité cyber n'est pas une évaluation du niveau de
-        sécurité technique des systèmes d'information d'une entreprise, mais de sa posture générale à
-        l'égard des enjeux de cybersécurité.
-        </div>
+         <div class="lower-band">
+           <div>
+         <h4>Encouragez d'autres PME à agir</h4>
+         <p>
+            Aidez d'autres entreprises marocaines à évaluer leur
+            maturité cyber et à accéder au Guide CMRPI/AUSIM.
+         </p>
+         </div>
+         
+         </div>
         """,
-        unsafe_allow_html=True,
-    )
-    st.markdown("</div>", unsafe_allow_html=True)  # fin main-pad
-
-    st.markdown(
-        """
-        <div class="lower-band">
-            <div>
-                <h4>Encouragez d'autres PME à agir</h4>
-                <p>Aidez d'autres entreprises marocaines à évaluer leur maturité cyber et à accéder
-                au Guide CMRPI/AUSIM.</p>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
+    unsafe_allow_html=True
     )
 
+     
     st.markdown(
         """
         <footer class="custom-footer">
@@ -708,8 +846,15 @@ def page_resultat():
     st.markdown("</div>", unsafe_allow_html=True)
 
 
+
 # =====================================================================
 # ROUTAGE
 # =====================================================================
-PAGES = {"accueil": page_accueil, "questionnaire": page_questionnaire, "resultat": page_resultat}
+PAGES = {
+    "accueil": page_accueil, 
+    "questionnaire": page_questionnaire, 
+    "resultat": page_resultat,
+    "guide": page_guide  # <-- NOUVELLE LIGNE À AJOUTER
+}
+
 PAGES[st.session_state.page]()
